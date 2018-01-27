@@ -50,9 +50,6 @@ var settings = {
             style: this.getSelect('r_style'),
             size: this.getSelect('r_size'),
             margin: this.getSelect('r_margin'),
-            enable_links: this.getChecked('enable_links'),
-            enable_experimental: this.getChecked('enable_experimental'),
-            show_article_tools: this.getChecked('show_article_tools'),
             enable_keys: this.getChecked('enable_keys'),
             keys: keybox.keys
         };
@@ -72,16 +69,12 @@ var settings = {
             this.setSelect('r_style', settings['style']);
             this.setSelect('r_size', settings['size']);
             this.setSelect('r_margin', settings['margin']);
-            this.setChecked('enable_links', settings['enable_links']);
             keybox.keys = settings['keys'];
             if (settings['enable_keys']) {
                 keybox.enable();
             } else {
                 keybox.disable();
             }
-
-            this.setChecked('enable_experimental', settings['enable_experimental']);
-            this.setChecked('show_article_tools', settings['show_article_tools']);
 
             keybox.update();
             this.preview()
