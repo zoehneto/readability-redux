@@ -85,4 +85,10 @@ function init () {
     }
 }
 
-init();
+function whenReadabilityLoaded (callback) {
+    if (typeof Readability === 'undefined') {
+        setTimeout (() => whenReadabilityLoaded (callback), 100);
+    } else { callback (); }
+}
+
+whenReadabilityLoaded(() => init());
