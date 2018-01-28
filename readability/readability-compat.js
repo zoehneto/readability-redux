@@ -4,7 +4,7 @@ function init () {
         spec: location.href,
         host: location.host,
         prePath: location.origin,
-        scheme: location.protocol,
+        scheme: location.protocol.substring(0, location.protocol.length -1),
         pathBase: location.href.substring(0, location.href.lastIndexOf('/') + 1)
     };
     var readability = new Readability(uri, document.cloneNode(true));
