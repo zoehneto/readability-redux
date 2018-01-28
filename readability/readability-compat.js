@@ -69,6 +69,20 @@ function init () {
 
         innerDiv.insertBefore( rootWarning, articleContent );
     }
+
+    /* Remove all stylesheets */
+    for (var k=0;k < document.styleSheets.length; k+=1) {
+        if (document.styleSheets[k].href !== null && document.styleSheets[k].href.lastIndexOf("readability") === -1) {
+            document.styleSheets[k].disabled = true;
+        }
+    }
+
+    window.scrollTo(0, 0);
+
+    /* If we're using the Typekit library, select the font */
+    if (readStyle === "style-athelas" || readStyle === "style-apertura") {
+        readability.useRdbTypekit();
+    }
 }
 
 init();
