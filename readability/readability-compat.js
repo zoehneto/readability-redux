@@ -72,7 +72,7 @@ function init () {
 
     /* Remove all stylesheets */
     for (var k=0;k < document.styleSheets.length; k+=1) {
-        if (document.styleSheets[k].href !== null && document.styleSheets[k].href.lastIndexOf("readability") === -1) {
+        if (!(document.styleSheets[k].href !== null && document.styleSheets[k].href.lastIndexOf("readability") !== -1)) {
             document.styleSheets[k].disabled = true;
         }
     }
