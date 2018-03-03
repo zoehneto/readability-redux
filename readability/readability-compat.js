@@ -3,9 +3,9 @@ function init () {
     var uri = {
         spec: location.href,
         host: location.host,
-        prePath: location.origin,
-        scheme: location.protocol.substring(0, location.protocol.length -1),
-        pathBase: location.href.substring(0, location.href.lastIndexOf('/') + 1)
+        prePath: location.protocol + "//" + location.host,
+        scheme: location.protocol.substring(0, location.protocol.indexOf(":")),
+        pathBase: location.protocol + "//" + location.host + location.pathname.substr(0, location.pathname.lastIndexOf("/") + 1)
     };
     var readability = new Readability(uri, document.cloneNode(true));
     var article = readability.parse();
