@@ -22,14 +22,17 @@
 
 /**
  * Public constructor.
- * @param {Object}       uri     The URI descriptor object.
  * @param {HTMLDocument} doc     The document to parse.
  * @param {Object}       options The options object.
  */
-function Readability(uri, doc, options) {
+function Readability(doc, options) {
+  // In some older versions, people passed a URI object as the first argument. Cope:
+  if (doc && !doc.documentElement && doc.spec) {
+    doc = options;
+    options = arguments[2];
+  }
   options = options || {};
 
-  this._uri = uri;
   this._doc = doc;
   this._articleTitle = null;
   this._articleByline = null;
@@ -85,6 +88,10 @@ Readability.prototype = {
   FLAG_STRIP_UNLIKELYS: 0x1,
   FLAG_WEIGHT_CLASSES: 0x2,
   FLAG_CLEAN_CONDITIONALLY: 0x4,
+
+  // https://developer.mozilla.org/en-US/docs/Web/API/Node/nodeType
+  ELEMENT_NODE: 1,
+  TEXT_NODE: 3,
 
   // Max number of nodes supported by this parser. Default: 0 (no limit)
   DEFAULT_MAX_ELEMS_TO_PARSE: 0,
@@ -414,7 +421,7 @@ Readability.prototype = {
   _nextElement: function (node) {
     var next = node;
     while (next
-        && (next.nodeType != Node.ELEMENT_NODE)
+        && (next.nodeType != this.ELEMENT_NODE)
         && this.REGEXPS.whitespace.test(next.textContent)) {
       next = next.nextSibling;
     }
@@ -793,7 +800,7 @@ Readability.prototype = {
           } else {
             // EXPERIMENTAL
             this._forEachNode(node.childNodes, function(childNode) {
-              if (childNode.nodeType === Node.TEXT_NODE && childNode.textContent.trim().length > 0) {
+              if (childNode.nodeType === this.TEXT_NODE && childNode.textContent.trim().length > 0) {
                 var p = doc.createElement('p');
                 p.textContent = childNode.textContent;
                 p.style.display = 'inline';
@@ -1241,13 +1248,13 @@ Readability.prototype = {
 
     // And there should be no text nodes with real content
     return !this._someNode(element.childNodes, function(node) {
-      return node.nodeType === Node.TEXT_NODE &&
+      return node.nodeType === this.TEXT_NODE &&
              this.REGEXPS.hasContent.test(node.textContent);
     });
   },
 
   _isElementWithoutContent: function(node) {
-    return node.nodeType === Node.ELEMENT_NODE &&
+    return node.nodeType === this.ELEMENT_NODE &&
       node.textContent.trim().length == 0 &&
       (node.children.length == 0 ||
        node.children.length == node.getElementsByTagName("br").length + node.getElementsByTagName("hr").length);
@@ -1744,7 +1751,6 @@ Readability.prototype = {
 
     var textContent = articleContent.textContent;
     return {
-      uri: this._uri,
       title: this._articleTitle,
       byline: metadata.byline || this._articleByline,
       dir: this._articleDir,

@@ -1,13 +1,6 @@
 // Based on the original Arc90 init function to provide style compatibility
 function init () {
-    var uri = {
-        spec: location.href,
-        host: location.host,
-        prePath: location.protocol + "//" + location.host,
-        scheme: location.protocol.substring(0, location.protocol.indexOf(":")),
-        pathBase: location.protocol + "//" + location.host + location.pathname.substr(0, location.pathname.lastIndexOf("/") + 1)
-    };
-    var readability = new Readability(uri, document.cloneNode(true));
+    var readability = new Readability(document.cloneNode(true));
     var article = readability.parse();
 
     /* Build readability's DOM tree */
