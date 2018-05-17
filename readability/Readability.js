@@ -26,10 +26,12 @@
  * @param {Object}       options The options object.
  */
 function Readability(doc, options) {
-  // In some older versions, people passed a URI object as the first argument. Cope:
-  if (doc && !doc.documentElement && doc.spec) {
+  // In some older versions, people passed a URI as the first argument. Cope:
+  if (options && options.documentElement) {
     doc = options;
     options = arguments[2];
+  } else if (!doc || !doc.documentElement) {
+    throw new Error("First argument to Readability constructor should be a document object.");
   }
   options = options || {};
 
@@ -132,8 +134,19 @@ Readability.prototype = {
 
   DEPRECATED_SIZE_ATTRIBUTE_ELEMS: [ "TABLE", "TH", "TD", "HR", "PRE" ],
 
+  // The commented out elements qualify as phrasing content but tend to be
+  // removed by readability when put into paragraphs, so we ignore them here.
+  PHRASING_ELEMS: [
+    // "CANVAS", "IFRAME", "SVG", "VIDEO",
+    "ABBR", "AUDIO", "B", "BDO", "BR", "BUTTON", "CITE", "CODE", "DATA",
+    "DATALIST", "DFN", "EM", "EMBED", "I", "IMG", "INPUT", "KBD", "LABEL",
+    "MARK", "MATH", "METER", "NOSCRIPT", "OBJECT", "OUTPUT", "PROGRESS", "Q",
+    "RUBY", "SAMP", "SCRIPT", "SELECT", "SMALL", "SPAN", "STRONG", "SUB",
+    "SUP", "TEXTAREA", "TIME", "VAR", "WBR"
+  ],
+
   // These are the classes that readability sets itself.
-  CLASSES_TO_PRESERVE: [ "readability-styled", "page" ],
+  CLASSES_TO_PRESERVE: [ "page" ],
 
   /**
    * Run any post-process modifications to article content as necessary.
@@ -213,6 +226,21 @@ Readability.prototype = {
    */
   _someNode: function(nodeList, fn) {
     return Array.prototype.some.call(nodeList, fn, this);
+  },
+
+  /**
+   * Iterate over a NodeList, return true if all of the provided iterate
+   * function calls return true, false otherwise.
+   *
+   * For convenience, the current object context is applied to the
+   * provided iterate function.
+   *
+   * @param  NodeList nodeList The NodeList.
+   * @param  Function fn       The iterate function.
+   * @return Boolean
+   */
+  _everyNode: function(nodeList, fn) {
+    return Array.prototype.every.call(nodeList, fn, this);
   },
 
   /**
@@ -469,11 +497,15 @@ Readability.prototype = {
               break;
           }
 
+          if (!this._isPhrasingContent(next)) break;
+
           // Otherwise, make this node a child of the new <p>.
           var sibling = next.nextSibling;
           p.appendChild(next);
           next = sibling;
         }
+
+        while (p.lastChild && this._isWhitespace(p.lastChild)) p.removeChild(p.lastChild);
       }
     });
   },
@@ -659,37 +691,6 @@ Readability.prototype = {
     return node && node.nextElementSibling;
   },
 
-  /**
-   * Like _getNextNode, but for DOM implementations with no
-   * firstElementChild/nextElementSibling functionality...
-   */
-  _getNextNodeNoElementProperties: function(node, ignoreSelfAndKids) {
-    function nextSiblingEl(n) {
-      do {
-        n = n.nextSibling;
-      } while (n && n.nodeType !== n.ELEMENT_NODE);
-      return n;
-    }
-    // First check for kids if those aren't being ignored
-    if (!ignoreSelfAndKids && node.children[0]) {
-      return node.children[0];
-    }
-    // Then for siblings...
-    var next = nextSiblingEl(node);
-    if (next) {
-      return next;
-    }
-    // And finally, move up the parent chain *and* find a sibling
-    // (because this is depth-first traversal, we will have already
-    // seen the parent nodes themselves).
-    do {
-      node = node.parentNode;
-      if (node)
-        next = nextSiblingEl(node);
-    } while (node && !next);
-    return node && next;
-  },
-
   _checkByline: function(node, matchString) {
     if (this._articleByline) {
       return false;
@@ -752,6 +753,12 @@ Readability.prototype = {
       while (node) {
         var matchString = node.className + " " + node.id;
 
+        if (!this._isProbablyVisible(node)) {
+          this.log("Removing hidden node - " + matchString);
+          node = this._removeAndGetNext(node);
+          continue;
+        }
+
         // Check to see if this node is a byline, and remove it if it is.
         if (this._checkByline(node, matchString)) {
           node = this._removeAndGetNext(node);
@@ -785,11 +792,31 @@ Readability.prototype = {
 
         // Turn all divs that don't have children block level elements into p's
         if (node.tagName === "DIV") {
+          // Put phrasing content into paragraphs.
+          var p = null;
+          var childNode = node.firstChild;
+          while (childNode) {
+            var nextSibling = childNode.nextSibling;
+            if (this._isPhrasingContent(childNode)) {
+              if (p !== null) {
+                p.appendChild(childNode);
+              } else if (!this._isWhitespace(childNode)) {
+                p = doc.createElement('p');
+                node.replaceChild(p, childNode);
+                p.appendChild(childNode);
+              }
+            } else if (p !== null) {
+              while (p.lastChild && this._isWhitespace(p.lastChild)) p.removeChild(p.lastChild);
+              p = null;
+            }
+            childNode = nextSibling;
+          }
+
           // Sites like http://mobile.slate.com encloses each paragraph with a DIV
           // element. DIVs with only a P element inside and no text content can be
           // safely converted into plain P elements to avoid confusing the scoring
           // algorithm with DIVs with are, in practice, paragraphs.
-          if (this._hasSinglePInsideElement(node)) {
+          if (this._hasSinglePInsideElement(node) && this._getLinkDensity(node) < 0.25) {
             var newNode = node.children[0];
             node.parentNode.replaceChild(newNode, node);
             node = newNode;
@@ -797,17 +824,6 @@ Readability.prototype = {
           } else if (!this._hasChildBlockElement(node)) {
             node = this._setNodeTag(node, "P");
             elementsToScore.push(node);
-          } else {
-            // EXPERIMENTAL
-            this._forEachNode(node.childNodes, function(childNode) {
-              if (childNode.nodeType === this.TEXT_NODE && childNode.textContent.trim().length > 0) {
-                var p = doc.createElement('p');
-                p.textContent = childNode.textContent;
-                p.style.display = 'inline';
-                p.className = 'readability-styled';
-                node.replaceChild(p, childNode);
-              }
-            });
           }
         }
         node = this._getNextNode(node);
@@ -847,7 +863,7 @@ Readability.prototype = {
 
         // Initialize and score ancestors.
         this._forEachNode(ancestors, function(ancestor, level) {
-          if (!ancestor.tagName)
+          if (!ancestor.tagName || !ancestor.parentNode || typeof(ancestor.parentNode.tagName) === 'undefined')
             return;
 
           if (typeof(ancestor.readability) === 'undefined') {
@@ -1272,6 +1288,21 @@ Readability.prototype = {
     });
   },
 
+  /***
+   * Determine if a node qualifies as phrasing content.
+   * https://developer.mozilla.org/en-US/docs/Web/Guide/HTML/Content_categories#Phrasing_content
+  **/
+  _isPhrasingContent: function(node) {
+    return node.nodeType === this.TEXT_NODE || this.PHRASING_ELEMS.indexOf(node.tagName) !== -1 ||
+      ((node.tagName === "A" || node.tagName === "DEL" || node.tagName === "INS") &&
+        this._everyNode(node.childNodes, this._isPhrasingContent));
+  },
+
+  _isWhitespace: function(node) {
+    return (node.nodeType === this.TEXT_NODE && node.textContent.trim().length === 0) ||
+           (node.nodeType === this.ELEMENT_NODE && node.tagName === "BR");
+  },
+
   /**
    * Get the inner text of a node - cross browser compatibly.
    * This also strips out any excess whitespace to be found.
@@ -1313,16 +1344,14 @@ Readability.prototype = {
     if (!e || e.tagName.toLowerCase() === 'svg')
       return;
 
-    if (e.className !== 'readability-styled') {
-      // Remove `style` and deprecated presentational attributes
-      for (var i = 0; i < this.PRESENTATIONAL_ATTRIBUTES.length; i++) {
-        e.removeAttribute(this.PRESENTATIONAL_ATTRIBUTES[i]);
-      }
+    // Remove `style` and deprecated presentational attributes
+    for (var i = 0; i < this.PRESENTATIONAL_ATTRIBUTES.length; i++) {
+      e.removeAttribute(this.PRESENTATIONAL_ATTRIBUTES[i]);
+    }
 
-      if (this.DEPRECATED_SIZE_ATTRIBUTE_ELEMS.indexOf(e.tagName) !== -1) {
-        e.removeAttribute('width');
-        e.removeAttribute('height');
-      }
+    if (this.DEPRECATED_SIZE_ATTRIBUTE_ELEMS.indexOf(e.tagName) !== -1) {
+      e.removeAttribute('width');
+      e.removeAttribute('height');
     }
 
     var cur = e.firstElementChild;
@@ -1640,6 +1669,10 @@ Readability.prototype = {
     this._flags = this._flags & ~flag;
   },
 
+  _isProbablyVisible: function(node) {
+    return node.style.display != "none" && !node.hasAttribute("hidden");
+  },
+
   /**
    * Decides whether or not the document is reader-able without parsing the whole thing.
    *
@@ -1664,9 +1697,9 @@ Readability.prototype = {
       nodes = [].concat.apply(Array.from(set), nodes);
     }
 
-    // FIXME we should have a fallback for helperIsVisible, but this is
-    // problematic because of jsdom's elem.style handling - see
-    // https://github.com/mozilla/readability/pull/186 for context.
+    if (!helperIsVisible) {
+      helperIsVisible = this._isProbablyVisible;
+    }
 
     var score = 0;
     // This is a little cheeky, we use the accumulator 'score' to decide what to return from
@@ -1720,9 +1753,6 @@ Readability.prototype = {
       }
     }
 
-    if (typeof this._doc.documentElement.firstElementChild === "undefined") {
-      this._getNextNode = this._getNextNodeNoElementProperties;
-    }
     // Remove script tags from the document.
     this._removeScripts(this._doc);
 
